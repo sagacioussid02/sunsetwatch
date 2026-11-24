@@ -8,5 +8,12 @@
   },
   "homepage": "https://github.com/sagacioussid02/sunsetwatch",
   "repository": "https://github.com/sagacioussid02/sunsetwatch",
-  "keywords": ["mcp", "security", "hooks", "deprecation", "supply-chain"]
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "security",
+    "hooks",
+    "deprecation",
+    "supply-chain"
+  ]
 }

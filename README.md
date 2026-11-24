@@ -274,3 +274,7 @@ waitlist asking for continuous hosted monitoring would justify an MVP
 (GitHub App + hosted registry pipeline). Silence — or "I just added the free
 Action" — parks SunsetWatch again, having cost a POC instead of seven
 weekends.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
