@@ -67,26 +67,120 @@ python3 sunsetwatch.py fixtures/sample-app --today 2026-11-08
 Requirements: Python 3.10+, standard library only. No installs, no network,
 no accounts.
 
+## Guard: stop agents installing archived MCP servers (v0.3)
+
+The scan finds archived MCP servers already in a codebase. The guard stops
+new ones going in. Coding agents still install reference servers like
+`@modelcontextprotocol/server-github` from their training data: Glow Labs'
+MCPhantom research (Nov 2026) found that when an agent installed a
+deprecated MCP server, the agent chose it itself 98% of the time, and it
+reported an unpatched remote code execution flaw in the archived Puppeteer
+server. `npx` still installs these packages after a deprecation warning.
+
+`sunsetwatch_guard.py` is a Claude Code `PreToolUse` hook. Before Claude
+Code runs a shell command or edits an MCP config file, the hook checks it
+against the `mcp_servers` entries in `registry.json` that are `archived`. On
+a match it blocks the call and tells the agent the replacement, so the agent
+switches on its own:
+
+```
+SunsetWatch blocked this command because it uses an archived MCP server.
+- @modelcontextprotocol/server-github was archived in 2025-05 and gets no security fixes.
+  Use instead: github/github-mcp-server (GitHub's official MCP server)
+    Docs: https://github.com/github/github-mcp-server
+Switch to the replacement above, if there is one. Do not retry the archived package ...
+```
+
+**What it catches**
+
+- Shell installs and runs: `npx`, `bunx`, `pnpx`, `npm install`/`exec`,
+  `pnpm add`/`dlx`, `yarn add`/`dlx`, `bun add`, `uvx`, `pip install`,
+  `python -m pip install`, `uv pip install`, `uv tool install`,
+  `uv run --with`, `pipx run`, and `claude mcp add` / `add-json`. Also inside
+  `cd x && ...`, multi-line scripts, `bash -c '...'`, `eval` and `xargs npx`,
+  and with `sudo`, `env` or `VAR=value` in front. Version and spelling
+  variants count: `pkg@latest`, `npm:pkg`, `--package=pkg`,
+  `mcp_server_sqlite`, `MCP-Server-SQLite==2025.4.25`.
+- Edits (Write, Edit, MultiEdit) that add an archived server to `.mcp.json`,
+  `~/.claude.json`, `claude_desktop_config.json`, Cursor or VS Code
+  `mcp.json`, Windsurf `mcp_config.json`, `~/.codex/config.toml`,
+  `package.json`, `pyproject.toml` or `requirements*.txt`.
+- It leaves alone the `active` reference servers, lookalike names, and
+  commands that only read about or remove a package (`npm view`,
+  `npm uninstall`, `pip show`, `claude mcp remove`, `grep`).
+
+**Install.** Add the hook to `~/.claude/settings.json` (every project) or a
+repo's `.claude/settings.json`, with the path to your SunsetWatch checkout.
+`registry.json` must sit next to the script.
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Write|Edit|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "python3 /path/to/sunsetwatch/sunsetwatch_guard.py" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Check it with
+`python3 sunsetwatch_guard.py --check-command "npx -y @modelcontextprotocol/server-github"`
+(prints the block message, exits 1), or `--list` for every archived server
+it blocks.
+
+**Modes and overrides**
+
+| Setting | Effect |
+|---|---|
+| `SUNSETWATCH_GUARD_MODE=block` | Default. The call is blocked and the agent sees the replacement. |
+| `SUNSETWATCH_GUARD_MODE=ask` | Claude Code asks you to approve the call, with the same message. |
+| `SUNSETWATCH_GUARD_MODE=off` | The hook does nothing. |
+| `SUNSETWATCH_GUARD_ALLOW=pkg1,pkg2` | Lets these packages through. |
+| `.sunsetwatch-allow` | Same, one package per line, `#` comments. Read from the project folder and `~/.config/sunsetwatch/allow`. |
+| `SUNSETWATCH_REGISTRY=/path/registry.json` | Use another registry file. |
+
+Set the variables before starting Claude Code; the agent can't change them,
+and the hook blocks the agent from editing an allowlist file. If the
+registry can't be read, the hook shows an error and lets the call through;
+input it doesn't understand also passes. It never breaks the session.
+
+**Limits.** It matches exact package names from the registry, so a renamed
+fork, a tarball or `git+https://` install, or a server built by hand gets
+through. It sees only what Claude Code's tools do, so run the scan for
+configs changed some other way. It covers Claude Code only; Cursor's and
+Codex's own agents aren't hooked yet.
+
 ## Tests
 
 ```bash
 python3 -m unittest discover -s tests -v
 ```
 
-14 tests covering registry matching (exact / family / unknown / alias /
+22 scanner tests covering registry matching (exact / family / unknown / alias /
 per-route), the scanner (file:line locations, `.env` and config scanning,
-skipping `node_modules`/`.git`, dedupe), parameter-deprecation scoping, and an
-end-to-end fixture scan → report check. All passing as of 2026-11-08.
+skipping `node_modules`/`.git`, dedupe), parameter-deprecation scoping, MCP
+server lookups, and an end-to-end fixture scan → report check. 28 guard tests
+in `tests/test_guard.py` cover real install command shapes, config edits,
+lookalikes and read-only commands that must pass, the allowlist, the hook's
+exit codes and ask mode, and that every archived registry entry cites
+sources. All 50 passing as of 2026-11-24.
 
 ## Layout
 
 | Path | What |
 |---|---|
 | `sunsetwatch.py` | The CLI: scanner + registry + report generator |
-| `registry.json` | Hand-seeded lifecycle registry (dossier facts only) |
+| `sunsetwatch_guard.py` | Claude Code hook that blocks installs of archived MCP servers |
+| `registry.json` | Hand-seeded lifecycle registry (dossier facts only for models; MCP entries cite their sources) |
 | `fixtures/sample-app/` | Fake project with 9 model usages across Python, TypeScript, `.env`, and YAML |
 | `demo-report.md` | Output of the demo run against the fixture |
-| `tests/test_sunsetwatch.py` | Automated tests |
+| `tests/test_sunsetwatch.py` | Scanner and registry tests |
+| `tests/test_guard.py` | Guard hook tests |
 
 ## What it deliberately does NOT do
 
