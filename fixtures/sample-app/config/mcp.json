@@ -1,0 +1,1 @@
+{"mcpServers":{"filesystem":{"args":["-y","@modelcontextprotocol/server-filesystem","/tmp"],"command":"npx"},"github":{"args":["-y","@modelcontextprotocol/server-github"],"command":"npx"},"notes-db":{"args":["mcp-server-sqlite","--db-path","notes.db"],"command":"uvx"}}}

@@ -1,0 +1,6 @@
+# Model routing config for the sample app
+providers:
+  vertex:
+    analysis_model: gemini-2.5-pro # retired on Vertex AI 2026-10-20
+  mistral:
+    drafting_model: mistral-large-latest # not in the POC seed registry
