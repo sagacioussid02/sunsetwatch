@@ -1,0 +1,17 @@
+{
+  "name": "sunsetwatch",
+  "description": "SunsetWatch: keep archived MCP servers out of your projects.",
+  "owner": {
+    "name": "sagacioussid02",
+    "url": "https://github.com/sagacioussid02"
+  },
+  "plugins": [
+    {
+      "name": "sunsetwatch",
+      "source": ".",
+      "description": "PreToolUse hook that blocks installs of archived MCP servers and names the maintained replacement.",
+      "category": "security",
+      "tags": ["mcp", "security", "hooks"]
+    }
+  ]
+}

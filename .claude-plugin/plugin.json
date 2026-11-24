@@ -1,0 +1,12 @@
+{
+  "name": "sunsetwatch",
+  "version": "0.3.0",
+  "description": "Blocks Claude Code from installing or configuring archived MCP servers and names the maintained replacement.",
+  "author": {
+    "name": "sagacioussid02",
+    "url": "https://github.com/sagacioussid02"
+  },
+  "homepage": "https://github.com/sagacioussid02/sunsetwatch",
+  "repository": "https://github.com/sagacioussid02/sunsetwatch",
+  "keywords": ["mcp", "security", "hooks", "deprecation", "supply-chain"]
+}
