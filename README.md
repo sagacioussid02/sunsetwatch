@@ -109,9 +109,24 @@ Switch to the replacement above, if there is one. Do not retry the archived pack
   commands that only read about or remove a package (`npm view`,
   `npm uninstall`, `pip show`, `claude mcp remove`, `grep`).
 
-**Install.** Add the hook to `~/.claude/settings.json` (every project) or a
-repo's `.claude/settings.json`, with the path to your SunsetWatch checkout.
-`registry.json` must sit next to the script.
+**Install as a Claude Code plugin (recommended).** In Claude Code, run:
+
+```
+/plugin marketplace add sagacioussid02/sunsetwatch
+/plugin install sunsetwatch@sunsetwatch
+```
+
+Or from a shell: `claude plugin marketplace add sagacioussid02/sunsetwatch`
+then `claude plugin install sunsetwatch@sunsetwatch`. The plugin registers
+the same `PreToolUse` hook (matcher `Bash|Write|Edit|MultiEdit`) from
+`hooks/hooks.json`, with `registry.json` shipped beside the script, so there
+is nothing to edit. `/plugin` lets you disable, update or uninstall it
+later. Needs `python3` (3.10+) on your `PATH`.
+
+**Or add the hook by hand.** Put it in `~/.claude/settings.json` (every
+project) or a repo's `.claude/settings.json`, with the path to your
+SunsetWatch checkout. `registry.json` must sit next to the script. Don't do
+both, or the guard runs twice.
 
 ```json
 {
@@ -168,7 +183,9 @@ server lookups, and an end-to-end fixture scan → report check. 28 guard tests
 in `tests/test_guard.py` cover real install command shapes, config edits,
 lookalikes and read-only commands that must pass, the allowlist, the hook's
 exit codes and ask mode, and that every archived registry entry cites
-sources. All 50 passing as of 2026-11-24.
+sources. 4 plugin tests in `tests/test_plugin.py` check the plugin and
+marketplace manifests and that `hooks/hooks.json` runs the real guard script
+beside `registry.json`. All 54 passing as of 2026-11-24.
 
 ## Layout
 
@@ -181,6 +198,10 @@ sources. All 50 passing as of 2026-11-24.
 | `demo-report.md` | Output of the demo run against the fixture |
 | `tests/test_sunsetwatch.py` | Scanner and registry tests |
 | `tests/test_guard.py` | Guard hook tests |
+| `.claude-plugin/plugin.json` | Claude Code plugin manifest |
+| `.claude-plugin/marketplace.json` | One-plugin marketplace, so `/plugin marketplace add` works on this repo |
+| `hooks/hooks.json` | The guard's `PreToolUse` hook, as the plugin installs it |
+| `tests/test_plugin.py` | Plugin packaging tests |
 
 ## What it deliberately does NOT do
 
