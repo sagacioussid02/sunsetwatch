@@ -359,3 +359,181 @@ class RegistryList(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Hardening(unittest.TestCase):
+    """Install shapes and edge cases found in the November 2026 stress test."""
+
+    BLOCKED = [
+        ("echo `npx -y @modelcontextprotocol/server-github`", "github"),
+        ('echo "$(npx -y @modelcontextprotocol/server-github)"', "github"),
+        ('echo "`uvx mcp-server-sqlite`"', "sqlite"),
+        ("bash -lc 'npx -y @modelcontextprotocol/server-github'", "github"),
+        ("sh -ec 'uvx mcp-server-sqlite'", "sqlite"),
+        ('powershell -Command "npx -y @modelcontextprotocol/server-github"', "github"),
+        ("pwsh -c 'npx -y @modelcontextprotocol/server-github'", "github"),
+        ("cmd /c npx -y @modelcontextprotocol/server-github", "github"),
+        ("echo 'npx -y @modelcontextprotocol/server-github' | sh", "github"),
+        ("printf 'uvx mcp-server-sqlite\\n' | bash -s", "sqlite"),
+        ("deno run -A npm:@modelcontextprotocol/server-github", "github"),
+        ("corepack pnpm dlx @modelcontextprotocol/server-github", "github"),
+        ("npm init @modelcontextprotocol/server my-server", "create-server"),
+        ("npm create @modelcontextprotocol/server my-server", "create-server"),
+        ("npm install @modelcontextprotocol/server-github#main", "github"),
+        ("npm i gh@npm:@modelcontextprotocol/server-github", "github"),
+        (
+            "npm i https://registry.npmjs.org/@modelcontextprotocol/server-github/-/server-github-2025.4.8.tgz",
+            "github",
+        ),
+        ("poetry add mcp-server-sqlite", "sqlite"),
+        ("pdm add mcp-server-sentry", "sentry"),
+        ("conda install -c conda-forge mcp-server-sqlite", "sqlite"),
+        ("P=@modelcontextprotocol/server-github; npx -y $P", "github"),
+        (
+            '"C:\\Program Files\\nodejs\\npx.cmd" -y @modelcontextprotocol/server-github',
+            "github",
+        ),
+        ("C:/nodejs/npx.cmd -y @modelcontextprotocol/server-github", "github"),
+    ]
+
+    def test_blocked(self):
+        for command, expected in self.BLOCKED:
+            with self.subTest(command=command):
+                self.assertIn(expected, ids(g.check_command(command, ENTRIES)))
+
+    def test_deep_nesting(self):
+        import shlex
+
+        cmd = "npx -y @modelcontextprotocol/server-github"
+        for _ in range(10):
+            cmd = "bash -c " + shlex.quote(cmd)
+        self.assertEqual(ids(g.check_command(cmd, ENTRIES)), ["github"])
+
+    def test_comments_are_not_commands(self):
+        for cmd in (
+            "echo hello # npx @modelcontextprotocol/server-github",
+            "npm i -D prettier # @modelcontextprotocol/server-github later",
+            "# npx -y @modelcontextprotocol/server-github\nls",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(ids(g.check_command(cmd, ENTRIES)), [])
+        # A quoted # is not a comment.
+        self.assertEqual(
+            ids(g.check_command("npx '#' @modelcontextprotocol/server-github", ENTRIES)),
+            ["github"],
+        )
+
+    def test_shell_writes_to_mcp_config(self):
+        server = '{"mcpServers":{"gh":{"command":"npx","args":["-y","@modelcontextprotocol/server-github"]}}}'
+        for cmd in (
+            f"echo '{server}' > .mcp.json",
+            f"cat > .mcp.json <<EOF\n{server}\nEOF",
+            f"echo '{server}' | tee ~/.cursor/mcp.json",
+            f"jq '. + {server}' .mcp.json > t && mv t .mcp.json",
+            "python3 -c \"import json;json.dump({'args':['@modelcontextprotocol/server-github']},open('.mcp.json','w'))\"",
+        ):
+            with self.subTest(cmd=cmd[:40]):
+                reason, hits = g.evaluate(bash(cmd), ENTRIES, set())
+                self.assertEqual(ids(hits), ["github"])
+
+    def test_reading_config_is_fine(self):
+        for cmd in (
+            "cat .mcp.json",
+            "grep -n @modelcontextprotocol/server-github .mcp.json",
+            "jq . .mcp.json",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(g.evaluate(bash(cmd), ENTRIES, set())[0])
+
+    def test_more_config_files(self):
+        for path in (
+            ".vscode/settings.json",
+            "/home/u/.gemini/settings.json",
+            "/home/u/.config/zed/settings.json",
+            ".continue/mcpServers/github.yaml",
+            "cline_mcp_settings.json",
+            "opencode.json",
+            "/home/u/.config/goose/config.yaml",
+            ".MCP.JSON",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(g.is_config_path(path))
+        self.assertFalse(g.is_config_path("src/settings.json"))
+
+    def test_allowlist_cannot_be_written_from_the_shell(self):
+        for cmd in (
+            "python3 -c \"open('.sunsetwatch-allow','a').write('x')\"",
+            "printf '%s\\n' x>>.sunsetwatch-allow",
+            "cp /tmp/x .sunsetwatch-allow",
+            "echo x | tee -a ~/.config/sunsetwatch/allow",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(g.evaluate(bash(cmd), ENTRIES, set())[0], g.ALLOW_FILE_MESSAGE)
+        for cmd in (
+            "cat .sunsetwatch-allow",
+            "git diff .sunsetwatch-allow",
+            "ls -la .sunsetwatch-allow",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertIsNone(g.evaluate(bash(cmd), ENTRIES, set())[0])
+
+    def test_agent_cannot_switch_the_guard_off(self):
+        settings = {
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "/p/.claude/settings.local.json",
+                "content": '{"env": {"SUNSETWATCH_GUARD_MODE": "off"}}',
+            },
+        }
+        self.assertEqual(g.evaluate(settings, ENTRIES, set())[0], g.SWITCH_MESSAGE)
+        disable = {
+            "tool_name": "Edit",
+            "tool_input": {
+                "file_path": "/p/.claude/settings.json",
+                "old_string": "true",
+                "new_string": '"sunsetwatch@sunsetwatch": false',
+            },
+        }
+        self.assertEqual(g.evaluate(disable, ENTRIES, set())[0], g.SWITCH_MESSAGE)
+        for cmd in (
+            "claude plugin disable sunsetwatch@sunsetwatch",
+            "claude plugin uninstall sunsetwatch",
+            "jq '.env.SUNSETWATCH_GUARD_MODE=\"off\"' .claude/settings.json > t && mv t .claude/settings.json",
+        ):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(g.evaluate(bash(cmd), ENTRIES, set())[0], g.SWITCH_MESSAGE)
+        ordinary = {
+            "tool_name": "Write",
+            "tool_input": {
+                "file_path": "/p/.claude/settings.json",
+                "content": '{"permissions": {}}',
+            },
+        }
+        self.assertIsNone(g.evaluate(ordinary, ENTRIES, set())[0])
+        self.assertIsNone(g.evaluate(bash("claude plugin list"), ENTRIES, set())[0])
+
+    def test_odd_input_never_crashes(self):
+        events = [
+            {
+                "tool_name": "MultiEdit",
+                "tool_input": {"file_path": ".mcp.json", "edits": "abc"},
+            },
+            {
+                "tool_name": "MultiEdit",
+                "tool_input": {"file_path": ".mcp.json", "edits": [1, None]},
+            },
+            {"tool_name": "Bash", "tool_input": {"command": "npx x"}, "cwd": 123},
+            {"tool_name": "Write", "tool_input": {"file_path": None, "content": None}},
+        ]
+        for event in events:
+            with self.subTest(event=event):
+                g.evaluate(event, ENTRIES, g.load_allowed(event.get("cwd")))
+
+    def test_bad_registry_shapes(self):
+        with tempfile.TemporaryDirectory() as d:
+            bad = Path(d) / "r.json"
+            bad.write_text('{"mcp_servers": {"a": 1}}')
+            with self.assertRaises(ValueError):
+                g.load_entries(bad)
+            bad.write_text('{"mcp_servers": [{"status": "archived"}, "x", {"status": "archived", "package": "p"}]}')
+            self.assertEqual(g.load_entries(bad), [])

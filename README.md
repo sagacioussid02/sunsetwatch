@@ -67,15 +67,18 @@ python3 sunsetwatch.py fixtures/sample-app --today 2026-11-08
 Requirements: Python 3.10+, standard library only. No installs, no network,
 no accounts.
 
-## Guard: stop agents installing archived MCP servers (v0.3)
+## Guard: stop agents installing archived MCP servers (v0.4)
 
 The scan finds archived MCP servers already in a codebase. The guard stops
 new ones going in. Coding agents still install reference servers like
-`@modelcontextprotocol/server-github` from their training data: Glow Labs'
-MCPhantom research (Nov 2026) found that when an agent installed a
-deprecated MCP server, the agent chose it itself 98% of the time, and it
-reported an unpatched remote code execution flaw in the archived Puppeteer
-server. `npx` still installs these packages after a deprecation warning.
+`@modelcontextprotocol/server-github` from their training data. Glow Labs'
+[MCPhantom research](https://www.glow.io/blogs/mcphantom-ai-coding-agents-are-installing-vulnerable-deprecated-mcp-servers-from-training-data)
+(November 2, 2026) found that in 98% of the sessions where an agent set up a
+deprecated MCP server, the name appears to have come from the model's
+training data rather than from the user. It also reported a remote code
+execution flaw in the archived Puppeteer server that will not be fixed and
+has no CVE. `npx` still installs these packages with only a deprecation
+warning.
 
 `sunsetwatch_guard.py` is a Claude Code `PreToolUse` hook. Before Claude
 Code runs a shell command or edits an MCP config file, the hook checks it
@@ -96,15 +99,23 @@ Switch to the replacement above, if there is one. Do not retry the archived pack
 - Shell installs and runs: `npx`, `bunx`, `pnpx`, `npm install`/`exec`,
   `pnpm add`/`dlx`, `yarn add`/`dlx`, `bun add`, `uvx`, `pip install`,
   `python -m pip install`, `uv pip install`, `uv tool install`,
-  `uv run --with`, `pipx run`, and `claude mcp add` / `add-json`. Also inside
-  `cd x && ...`, multi-line scripts, `bash -c '...'`, `eval` and `xargs npx`,
-  and with `sudo`, `env` or `VAR=value` in front. Version and spelling
-  variants count: `pkg@latest`, `npm:pkg`, `--package=pkg`,
-  `mcp_server_sqlite`, `MCP-Server-SQLite==2025.4.25`.
+  `uv run --with`, `pipx run`, `poetry add`, `pdm add`, `conda install`,
+  `deno run npm:...`, `npm init`/`npm create` scaffolds, and `claude mcp add` /
+  `add-json`. Also inside `cd x && ...`, multi-line scripts, `bash -c '...'`
+  (and `-lc`, `-ec`), `pwsh -Command`, `cmd /c`, `eval`, `$(...)` and
+  backticks, scripts piped into `sh`, heredocs, and `xargs npx`, and with
+  `sudo`, `env`, `corepack` or `VAR=value` in front. Version and spelling
+  variants count: `pkg@latest`, `pkg#main`, `npm:pkg`, `alias@npm:pkg`,
+  `--package=pkg`, registry tarball URLs, `mcp_server_sqlite`,
+  `MCP-Server-SQLite==2025.4.25`, and Windows paths like `C:\nodejs\npx.cmd`.
 - Edits (Write, Edit, MultiEdit) that add an archived server to `.mcp.json`,
   `~/.claude.json`, `claude_desktop_config.json`, Cursor or VS Code
-  `mcp.json`, Windsurf `mcp_config.json`, `~/.codex/config.toml`,
-  `package.json`, `pyproject.toml` or `requirements*.txt`.
+  `mcp.json`, VS Code, Gemini CLI or Zed `settings.json`, Windsurf
+  `mcp_config.json`, Cline `cline_mcp_settings.json`, `opencode.json`,
+  Continue and Goose configs, `~/.codex/config.toml`, `package.json`,
+  `pyproject.toml` or `requirements*.txt`. Shell writes to those files count
+  too: `echo ... > .mcp.json`, `cat > .mcp.json <<EOF`, `jq ... > t && mv`,
+  `python -c "...open('.mcp.json','w')..."`.
 - It leaves alone the `active` reference servers, lookalike names, and
   commands that only read about or remove a package (`npm view`,
   `npm uninstall`, `pip show`, `claude mcp remove`, `grep`).
@@ -159,16 +170,35 @@ it blocks.
 | `.sunsetwatch-allow` | Same, one package per line, `#` comments. Read from the project folder and `~/.config/sunsetwatch/allow`. |
 | `SUNSETWATCH_REGISTRY=/path/registry.json` | Use another registry file. |
 
-Set the variables before starting Claude Code; the agent can't change them,
-and the hook blocks the agent from editing an allowlist file. If the
-registry can't be read, the hook shows an error and lets the call through;
-input it doesn't understand also passes. It never breaks the session.
+Set the variables before starting Claude Code. The hook blocks the agent from
+writing an allowlist file (with any tool or shell command), from setting
+these variables in `.claude/settings*.json`, and from disabling or
+uninstalling the plugin; only you should do those. If the registry can't be
+read, the hook shows an error and lets the call through; input it doesn't
+understand, or a bug in the hook, also lets the call through with a message.
+It never breaks the session. A check takes about 40 ms, most of it Python
+starting up.
 
-**Limits.** It matches exact package names from the registry, so a renamed
-fork, a tarball or `git+https://` install, or a server built by hand gets
-through. It sees only what Claude Code's tools do, so run the scan for
-configs changed some other way. It covers Claude Code only; Cursor's and
-Codex's own agents aren't hooked yet.
+**Limits.** The guard is a seatbelt for an agent working from stale
+knowledge, not a sandbox against someone trying to get round it. It reads
+commands; it does not run them. So it misses:
+
+- Names built at run time: `npx $(printf '@modelcontextprotocol/%s' server-github)`,
+  `${VAR:-...}` expansion, or `x=npx; $x ...`.
+- Installs from source: `git clone` of the archive and `node dist/index.js`,
+  `git+https://` and `github:` specifiers, a renamed fork, or a server built
+  by hand.
+- Docker images such as `mcp/github`; the registry lists npm and PyPI
+  packages only.
+- Packages already named in a requirements file or lockfile
+  (`pip install -r requirements.txt`). Run the scan for those.
+- Anything outside Claude Code's tools. It covers Claude Code only; Cursor's
+  and Codex's own agents aren't hooked yet.
+
+When a runner like `npx` or `uvx` is in a command, any argument that exactly
+names an archived package is blocked, so a rare command such as
+`uvx pytest -k mcp_server_sentry` is blocked too. Put the name in
+`.sunsetwatch-allow` if that gets in your way.
 
 ## Tests
 
@@ -179,13 +209,15 @@ python3 -m unittest discover -s tests -v
 22 scanner tests covering registry matching (exact / family / unknown / alias /
 per-route), the scanner (file:line locations, `.env` and config scanning,
 skipping `node_modules`/`.git`, dedupe), parameter-deprecation scoping, MCP
-server lookups, and an end-to-end fixture scan → report check. 28 guard tests
-in `tests/test_guard.py` cover real install command shapes, config edits,
-lookalikes and read-only commands that must pass, the allowlist, the hook's
-exit codes and ask mode, and that every archived registry entry cites
-sources. 4 plugin tests in `tests/test_plugin.py` check the plugin and
-marketplace manifests and that `hooks/hooks.json` runs the real guard script
-beside `registry.json`. All 54 passing as of 2026-11-24.
+server lookups, and an end-to-end fixture scan → report check. 38 guard tests
+in `tests/test_guard.py` cover real install command shapes (including the
+bypass shapes from a November 2026 stress test), config edits from tools and
+the shell, lookalikes and read-only commands that must pass, the allowlist
+and guard switches, odd hook input, the hook's exit codes and ask mode, and
+that every archived registry entry cites sources. 4 plugin tests in
+`tests/test_plugin.py` check the plugin and marketplace manifests and that
+`hooks/hooks.json` runs the real guard script beside `registry.json`. All 64
+passing as of 2026-11-24.
 
 ## Layout
 
@@ -242,3 +274,7 @@ waitlist asking for continuous hosted monitoring would justify an MVP
 (GitHub App + hosted registry pipeline). Silence — or "I just added the free
 Action" — parks SunsetWatch again, having cost a POC instead of seven
 weekends.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
