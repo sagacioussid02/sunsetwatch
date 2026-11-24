@@ -1,6 +1,6 @@
 {
   "name": "sunsetwatch",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Blocks Claude Code from installing or configuring archived MCP servers and names the maintained replacement.",
   "author": {
     "name": "sagacioussid02",
